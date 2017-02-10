@@ -40,4 +40,93 @@ volume={0.volume}, adj={0.adj})'.format(self)
     def lower_bb(self, n, k):
         return self.ma(n) - k * self.std(n)
 
+    def streak_indicator(self, streak_length, horizon, direction, memory = 0):
+        up = 0
+        down = 0
 
+        if memory == 0:
+            first = 0
+        else:
+            if self.index - memory < 0:
+                first = 0
+            else:
+                first = self.index - memory
+
+        last = self.index
+
+        if last - first < streak_length:
+            return None, None, None
+
+        ticks = [self.series[n] for n in range(first, last)][0::horizon]
+
+        streak = 0 
+        for yesterday, today, tomorrow in zip(ticks, ticks[1:], ticks[2:]):
+            if direction == 'up':
+                if yesterday.close < today.close:
+                    streak += 1
+                else:
+                    streak = 0
+
+            if direction == 'down':
+                if yesterday.close > today.close:
+                    streak += 1
+                else:
+                    streak = 0
+
+            if streak == streak_length:
+                if tomorrow.close > today.close:
+                    up += 1
+                else:
+                    down += 1
+
+        confidence = float(up + down)/float(last - first)
+
+        return up, down, confidence
+
+    def data_indicator(self, dataset, target, margin, offset = 1):
+        def closest_date(current, target):
+            target = datetime.datetime.strptime(target, '%Y-%d-%m').date()
+            today = current.date
+            yesterday = current.series[current.index - 1].date
+
+            if today == target: 
+                return True
+
+            if yesterday < target and today > target: 
+                return True
+
+            return False
+
+        dataset[0]['price_change'] = None
+
+        up = 0
+        down = 0
+        avg_change = 0
+
+        for n in range(0, len(dataset) - 1):
+            date1 = dataset[n]['date'] 
+            date2 = dataset[n + 1]['date']
+            
+            tick1 = [tick for tick in self.series if closest_date(tick, date1)]
+            tick2 = [tick for tick in self.series if closest_date(tick, date2)]
+
+            if len(tick1) > 0 and len(tick2) > 0:
+                dataset[n + 1]['price_change'] = float(tick2[0].close - tick1[0].close)/float(tick2[0].close)
+            else:
+                dataset[n + 1]['price_change'] = None 
+
+        for n in range(1, len(dataset) - 1):
+            if target - margin < dataset[n]['x'] < target + margin:
+                if dataset[n + offset]['price_change'] > 0:
+                    up += 1
+                if dataset[n + offset]['price_change'] < 0:
+                    down += 1
+
+                if dataset[n + offset]['price_change'] is not None:
+                    avg_change += dataset[n + 1]['price_change']
+
+        pause = raw_input()
+
+        confidence = float(up + down)/float(len([data for data in dataset if data['price_change'] is not None]))
+
+        return up, down, avg_change, confidence
